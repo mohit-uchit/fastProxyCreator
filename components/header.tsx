@@ -24,7 +24,13 @@ export default function Header() {
       <div className="container flex h-16 items-center justify-between">
         <div className="flex items-center gap-2">
           <Link href="/" className="flex items-center space-x-2">
-            <span className="text-2xl font-bold text-primary">🗄️ Fast Proxy Creator</span>
+            <img
+              src="/logo.png"
+              alt="Fast Proxy Creator Logo"
+              className="h-8 w-8 md:h-10 md:w-10"
+              style={{ display: 'inline-block' }}
+            />
+            <span className="text-xl md:text-2xl font-bold text-primary">Fast Proxy Creator</span>
           </Link>
         </div>
 

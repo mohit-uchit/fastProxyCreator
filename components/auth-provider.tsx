@@ -43,7 +43,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(userData)
         } else {
           setUser(null)
-          if (pathname !== '/login' && pathname !== '/register') {
+          const protectedRoutes = ['/install', '/dashboard', '/settings']
+          if (protectedRoutes.includes(pathname)) {
             router.push('/login')
           }
         }
