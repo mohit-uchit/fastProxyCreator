@@ -41,7 +41,7 @@ export async function POST(request: Request) {
       email,
       password: hashedPassword,
       subscription: {
-        active: false,
+        active: true,
       },
       createdAt: new Date(),
     };
