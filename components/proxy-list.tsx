@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useAuth } from "@/components/auth-provider"
-import { columns, Proxy } from "@/app/my-proxies/columns"
+import { columns, Proxy } from "@/app/(no-footer)/my-proxies/columns"
 import { DataTable } from "@/components/data-table"
 import { useToast } from "@/components/ui/use-toast"
 import { Button } from "@/components/ui/button"
