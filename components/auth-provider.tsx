@@ -43,7 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(userData)
         } else {
           setUser(null)
-          const protectedRoutes = ['/install', '/dashboard', '/settings']
+          const protectedRoutes = ['/install', '/dashboard', '/settings', '/my-proxies']
           if (protectedRoutes.includes(pathname)) {
             router.push('/login')
           }

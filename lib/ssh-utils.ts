@@ -1,6 +1,7 @@
 import { Client, ConnectConfig, ClientChannel } from 'ssh2';
 import { Readable } from 'stream';
 import { sendTelegramMessage } from './telegram';
+import { clientPromise } from './db'; // Import database client
 
 // Interfaces for configuration and results
 export interface SSHConfig {
@@ -12,8 +13,9 @@ export interface SSHConfig {
   proxyPort: string;
   proxyUsername: string;
   proxyPassword: string;
-  onLog?: (log: string) => void;
   telegramChatId?: string;
+  userId: string; // Make sure this is required
+  onLog?: (log: string) => void;
 }
 
 export interface ProxySetupResult {
@@ -229,6 +231,13 @@ export async function setupSquidProxy(
   config: SSHConfig,
 ): Promise<ProxySetupResult> {
   validateConfig(config);
+  console.log('Config:', config); // Debug log
+  console.log('User ID:', config.userId); // Debug log
+  // Add validation for userId
+  if (!config.userId) {
+    throw new Error('userId is required');
+  }
+
   const logger = createLogger(config.onLog);
   const conn = new Client();
   let stream: ClientChannel | null = null;
@@ -410,6 +419,39 @@ EOL'`,
         await sendTelegramMessage(config.telegramChatId, telegramMsg);
       } catch (err) {
         console.error('Failed to send Telegram message:', err);
+      }
+    }
+
+    const proxyResult = {
+      proxy: `${config.host}:${config.proxyPort}`,
+      username: config.proxyUsername,
+      password: config.proxyPassword,
+      status: 'success' as const,
+      logs: logger.getLogs(),
+    };
+
+    // Save successful proxy to database
+    if (proxyResult.status === 'success') {
+      try {
+        const client = await clientPromise;
+        const db = client.db(process.env.MONGODB_DB || 'squidProxy'); // Replace with your actual database name
+
+        const proxyDoc = {
+          user_id: config.userId, // Use the userId from config
+          ip: config.host,
+          port: config.proxyPort,
+          username: config.proxyUsername,
+          password: config.proxyPassword,
+          status: 'success',
+          createdAt: new Date(),
+        };
+
+        console.log('Saving proxy:', proxyDoc); // Debug log
+
+        const result = await db.collection('proxies').insertOne(proxyDoc);
+        console.log('Proxy saved:', result.insertedId); // Debug log
+      } catch (error) {
+        console.error('Error saving proxy:', error);
       }
     }
 

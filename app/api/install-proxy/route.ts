@@ -15,6 +15,7 @@ interface SSHConfig {
   proxyUsername: string;
   proxyPassword: string;
   telegramChatId: string;
+  userId: string; // Add userId to the interface
 }
 
 export async function POST(request: Request) {
@@ -61,7 +62,7 @@ export async function POST(request: Request) {
       telegramChatId,
     } = await request.json();
 
-    // Proceed with installation
+    // Pass userId to setupSquidProxy
     const result = await setupSquidProxy({
       host: ipAddress,
       username,
@@ -70,7 +71,8 @@ export async function POST(request: Request) {
       proxyPort,
       proxyUsername,
       proxyPassword,
-      telegramChatId
+      telegramChatId,
+      userId: user.id, // Pass userId here
     });
 
     // Log installation in database
@@ -83,7 +85,7 @@ export async function POST(request: Request) {
       createdAt: new Date(),
       logs: result.logs,
       status: result.status,
-    });
+      });
 
     if (result.status === 'error') {
       return NextResponse.json(

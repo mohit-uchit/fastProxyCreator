@@ -19,6 +19,12 @@ export default function Header() {
     { name: "Install Proxy", href: "/install" },
   ]
 
+  // Add My Proxies to navigation when user is logged in
+  const authNavItems = [
+    ...navItems,
+    ...(user ? [{ name: "My Proxies", href: "/my-proxies" }] : [])
+  ]
+
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 items-center justify-between">
@@ -36,7 +42,7 @@ export default function Header() {
 
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center gap-6">
-          {navItems.map((item) => (
+          {authNavItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -83,7 +89,7 @@ export default function Header() {
       {mobileMenuOpen && (
         <div className="md:hidden container py-4 pb-6 border-b">
           <nav className="flex flex-col space-y-4">
-            {navItems.map((item) => (
+            {authNavItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}

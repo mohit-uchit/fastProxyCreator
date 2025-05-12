@@ -152,12 +152,6 @@ export default function InstallPage() {
       setError('Proxy Password is required');
       return false;
     }
-
-    if (!telegramChatId) {
-      setError('Telegram Chat ID is required');
-      return false;
-    }
-
     return true;
   };
 
@@ -497,7 +491,6 @@ export default function InstallPage() {
                         placeholder="123456789"
                         value={telegramChatId}
                         onChange={e => setTelegramChatId(e.target.value)}
-                        required
                         type="number"
                       />
                     </div>
