@@ -1,29 +1,30 @@
-"use client"
+'use client';
 
-import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { useAuth } from "@/components/auth-provider"
-import { ModeToggle } from "@/components/mode-toggle"
-import { Menu, X } from "lucide-react"
-import { useState } from "react"
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { useAuth } from '@/components/auth-provider';
+import { ModeToggle } from '@/components/mode-toggle';
+import { Menu, X } from 'lucide-react';
+import { useState } from 'react';
 
 export default function Header() {
-  const { user, logout } = useAuth()
-  const pathname = usePathname()
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const { user, logout } = useAuth();
+  const pathname = usePathname();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navItems = [
-    { name: "Home", href: "/" },
-    { name: "Pricing", href: "/pricing" },
-    { name: "Install Proxy", href: "/install" },
-  ]
+    { name: 'Home', href: '/' },
+    { name: 'Pricing', href: '/pricing' },
+    { name: 'Install Proxy', href: '/install' },
+    { name: 'Proxy Checker', href: '/proxy-checker' },
+  ];
 
   // Add My Proxies to navigation when user is logged in
   const authNavItems = [
     ...navItems,
-    ...(user ? [{ name: "My Proxies", href: "/my-proxies" }] : [])
-  ]
+    ...(user ? [{ name: 'My Proxies', href: '/my-proxies' }] : []),
+  ];
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -36,18 +37,22 @@ export default function Header() {
               className="h-8 w-8 md:h-10 md:w-10"
               style={{ display: 'inline-block' }}
             />
-            <span className="text-xl md:text-2xl font-bold text-primary">Fast Proxy Creator</span>
+            <span className="text-xl md:text-2xl font-bold text-primary">
+              Fast Proxy Creator
+            </span>
           </Link>
         </div>
 
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center gap-6">
-          {authNavItems.map((item) => (
+          {authNavItems.map(item => (
             <Link
               key={item.href}
               href={item.href}
               className={`text-sm font-medium transition-colors hover:text-primary ${
-                pathname === item.href ? "text-primary" : "text-muted-foreground"
+                pathname === item.href
+                  ? 'text-primary'
+                  : 'text-muted-foreground'
               }`}
             >
               {item.name}
@@ -80,7 +85,11 @@ export default function Header() {
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label="Toggle menu"
           >
-            {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+            {mobileMenuOpen ? (
+              <X className="h-6 w-6" />
+            ) : (
+              <Menu className="h-6 w-6" />
+            )}
           </Button>
         </div>
       </div>
@@ -89,12 +98,14 @@ export default function Header() {
       {mobileMenuOpen && (
         <div className="md:hidden container py-4 pb-6 border-b">
           <nav className="flex flex-col space-y-4">
-            {authNavItems.map((item) => (
+            {authNavItems.map(item => (
               <Link
                 key={item.href}
                 href={item.href}
                 className={`text-sm font-medium transition-colors hover:text-primary ${
-                  pathname === item.href ? "text-primary" : "text-muted-foreground"
+                  pathname === item.href
+                    ? 'text-primary'
+                    : 'text-muted-foreground'
                 }`}
                 onClick={() => setMobileMenuOpen(false)}
               >
@@ -106,8 +117,8 @@ export default function Header() {
               <Button
                 variant="ghost"
                 onClick={() => {
-                  logout()
-                  setMobileMenuOpen(false)
+                  logout();
+                  setMobileMenuOpen(false);
                 }}
               >
                 Logout
@@ -130,5 +141,5 @@ export default function Header() {
         </div>
       )}
     </header>
-  )
+  );
 }

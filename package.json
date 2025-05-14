@@ -47,6 +47,8 @@
     "clsx": "^2.1.1",
     "cmdk": "1.0.4",
     "date-fns": "^2.30.0",
+    "dgram": "^1.0.1",
+    "dns": "^0.2.2",
     "embla-carousel-react": "8.5.1",
     "gcp-metadata": "latest",
     "input-otp": "1.4.1",

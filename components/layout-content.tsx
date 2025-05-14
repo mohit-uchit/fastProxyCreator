@@ -18,7 +18,9 @@ export default function LayoutContent({
         {children}
       </main>
       {!pathname.includes('/install') && 
-       !pathname.includes('/my-proxies') && <Footer />}
+       !pathname.includes('/my-proxies') && 
+       !pathname.includes('/proxy-checker') &&
+       <Footer />}
     </div>
   )
 }
