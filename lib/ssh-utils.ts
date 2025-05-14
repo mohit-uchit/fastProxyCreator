@@ -226,13 +226,38 @@ const executeCommand = async (
   });
 };
 
+// Add this function after the executeCommand function
+async function clearAptLocks(
+  stream: ClientChannel,
+  logger: ReturnType<typeof createLogger>,
+): Promise<void> {
+  const lockFiles = [
+    '/var/lib/apt/lists/lock',
+    '/var/lib/dpkg/lock',
+    '/var/lib/dpkg/lock-frontend',
+    '/var/cache/apt/archives/lock',
+  ];
+
+  logger.log('🔄 Checking and clearing APT locks...');
+
+  for (const lockFile of lockFiles) {
+    // Check if lock file exists and remove it
+    await executeCommand(
+      stream,
+      `sudo rm -f ${lockFile} && sudo rm -f ${lockFile}-front`,
+      logger,
+    );
+  }
+
+  // Reset the dpkg state
+  await executeCommand(stream, 'sudo dpkg --configure -a', logger);
+}
+
 // Main function to set up Squid proxy
 export async function setupSquidProxy(
   config: SSHConfig,
 ): Promise<ProxySetupResult> {
   validateConfig(config);
-  console.log('Config:', config); // Debug log
-  console.log('User ID:', config.userId); // Debug log
   // Add validation for userId
   if (!config.userId) {
     throw new Error('userId is required');
@@ -288,24 +313,33 @@ export async function setupSquidProxy(
     }
     await executeCommand(stream, 'sudo -n true', logger);
 
-    // Check for pending reboot
-    const rebootCheck = await executeCommand(
-      stream,
-      'test -f /var/run/reboot-required && echo "Reboot required" || echo "No reboot required"',
-      logger,
-    );
-    if (rebootCheck.includes('Reboot required')) {
-      logger.log(
-        '⚠️ WARNING: System restart required. Installation may fail until reboot is performed.',
-      );
-    }
-
-    // Installation steps with better logging
+    // Update the steps array in setupSquidProxy function
     const steps = [
+      {
+        name: 'Clear APT Locks',
+        command: '', // Empty command as we'll handle this in execute
+        message: '🔓 Clearing package manager locks...',
+        execute: async () => {
+          if (!stream) throw new Error('Stream is not available');
+          await clearAptLocks(stream, logger);
+          return true;
+        },
+      },
       {
         name: 'System Update',
         command: 'sudo DEBIAN_FRONTEND=noninteractive apt-get update',
         message: '📡 Updating package lists...',
+        retry: async (error: Error) => {
+          if (
+            error.message.includes('Could not get lock') ||
+            error.message.includes('Resource temporarily unavailable')
+          ) {
+            if (!stream) throw new Error('Stream is not available');
+            await clearAptLocks(stream, logger);
+            return true;
+          }
+          return false;
+        },
       },
       {
         name: 'System Upgrade',
@@ -317,18 +351,27 @@ export async function setupSquidProxy(
         command:
           'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y apache2-utils',
         message: '📦 Installing Apache utilities...',
+        retry: async (error: Error) => {
+          if (
+            error.message.includes('Could not get lock') ||
+            error.message.includes('Resource temporarily unavailable')
+          ) {
+            if (!stream) throw new Error('Stream is not available');
+            await clearAptLocks(stream, logger);
+            return true;
+          }
+          return false;
+        },
         validate: async (output: string) => {
           if (!stream) {
             throw new Error('SSH stream is not available');
           }
-          // Verify apache2-utils installation
-          const verifyCommand = 'which htpasswd';
           const verifyOutput = await executeCommand(
             stream,
-            verifyCommand,
+            'test -f /usr/bin/htpasswd && echo "htpasswd found" || echo "htpasswd not found"',
             logger,
           );
-          if (!verifyOutput.includes('/usr/bin/htpasswd')) {
+          if (!verifyOutput.includes('htpasswd found')) {
             throw new Error(
               'Failed to install apache2-utils: htpasswd command not found',
             );
@@ -379,27 +422,41 @@ EOL'`,
       },
     ];
 
-    // Execute commands sequentially
+    // Update the execution loop in setupSquidProxy function
     for (const step of steps) {
       logger.log(`\n${step.message}`);
-      const output = await executeCommand(stream, step.command, logger);
+      let attempts = 0;
+      const maxAttempts = 3;
 
-      // Validate step if validator exists
-      if (step.validate) {
+      while (attempts < maxAttempts) {
         try {
-          await step.validate(output);
+          if (step.execute) {
+            await step.execute();
+          } else {
+            const output = await executeCommand(stream, step.command, logger);
+            if (step.validate) {
+              await step.validate(output);
+            }
+          }
+          break; // Success, exit the retry loop
         } catch (error) {
-          logger.log(
-            `\n❌ Step "${step.name}" failed: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
-          throw error;
+          attempts++;
+          if (step.retry && (await step.retry(error as Error))) {
+            logger.log(
+              `🔄 Retrying ${step.name} (attempt ${attempts}/${maxAttempts})...`,
+            );
+            // Wait 2 seconds before retrying
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            continue;
+          }
+          if (attempts === maxAttempts) {
+            throw error;
+          }
         }
       }
 
-      // Add a small delay between steps to ensure logs are sent
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Add a small delay between steps
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
     logger.log('\n✨ Installation completed successfully!\n');
@@ -446,10 +503,7 @@ EOL'`,
           createdAt: new Date(),
         };
 
-        console.log('Saving proxy:', proxyDoc); // Debug log
-
-        const result = await db.collection('proxies').insertOne(proxyDoc);
-        console.log('Proxy saved:', result.insertedId); // Debug log
+        await db.collection('proxies').insertOne(proxyDoc);
       } catch (error) {
         console.error('Error saving proxy:', error);
       }
