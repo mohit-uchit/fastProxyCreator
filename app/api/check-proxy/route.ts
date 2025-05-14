@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import { request } from 'http';
 
-export async function POST(req: Request) {
+export async function POST(req: Request): Promise<Response> {
   try {
     const { host, port, username, password } = await req.json();
 
-    return new Promise((resolve) => {
+    const checkResult = await new Promise<Response>((resolve) => {
       const proxyReq = request({
         host,
         port: parseInt(port),
@@ -22,21 +22,32 @@ export async function POST(req: Request) {
           socket.destroy();
           resolve(NextResponse.json({ isAlive: true }));
         } else {
-          resolve(NextResponse.json({ isAlive: false, error: 'Connection failed' }));
+          resolve(NextResponse.json({ 
+            isAlive: false, 
+            error: 'Connection failed' 
+          }));
         }
       });
 
       proxyReq.on('error', (err) => {
-        resolve(NextResponse.json({ isAlive: false, error: err.message }));
+        resolve(NextResponse.json({ 
+          isAlive: false, 
+          error: err.message 
+        }));
       });
 
       proxyReq.on('timeout', () => {
         proxyReq.destroy();
-        resolve(NextResponse.json({ isAlive: false, error: 'Timeout' }));
+        resolve(NextResponse.json({ 
+          isAlive: false, 
+          error: 'Timeout' 
+        }));
       });
 
       proxyReq.end();
     });
+
+    return checkResult;
   } catch (error) {
     return NextResponse.json(
       { error: 'Invalid request' },
