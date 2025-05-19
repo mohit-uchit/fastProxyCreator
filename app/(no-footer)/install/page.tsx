@@ -27,6 +27,19 @@ import { AlertCircle, Info, Terminal, Check } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
+const successCardStyles = {
+  position: 'fixed' as const,
+  bottom: '20px',
+  right: '20px',
+  backgroundColor: '#10B981',
+  color: 'white',
+  padding: '1rem',
+  borderRadius: '0.5rem',
+  boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+  zIndex: 50,
+  opacity: 1, // Make sure it's fully opaque
+};
+
 export default function InstallPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -44,6 +57,7 @@ export default function InstallPage() {
   const [isInstalling, setIsInstalling] = useState(false);
   const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
   const [installSuccess, setInstallSuccess] = useState(false);
+  const [installationDetails, setInstallationDetails] = useState<any>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [installationId, setInstallationId] = useState<string | null>(null);
@@ -180,25 +194,28 @@ export default function InstallPage() {
               setTerminalOutput(prev => [...prev, data.message]);
               break;
             case 'complete':
-              setInstallSuccess(true);
+              if (data.success) {
+                setInstallSuccess(true);
+                // Store the proxy details
+                setInstallationDetails(data.details);
+              } else {
+                setError('Installation failed');
+              }
               setIsInstalling(false);
               eventSource?.close();
               break;
             case 'error':
-              console.error('Installation error:', data.message);
-              setTerminalOutput(prev => [...prev, `Error: ${data.message}`]);
               setError(data.message);
               setIsInstalling(false);
+              setInstallSuccess(false);
               eventSource?.close();
               break;
           }
         } catch (error) {
           console.error('Error parsing SSE message:', error);
-          setTerminalOutput(prev => [
-            ...prev,
-            'Error processing server response',
-          ]);
           setError('Error processing server response');
+          setIsInstalling(false);
+          setInstallSuccess(false);
         }
       };
 
@@ -298,26 +315,15 @@ export default function InstallPage() {
     <div className="container py-8 relative">
       {/* Success Card Overlay */}
       {installSuccess && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none">
-          <div className="pointer-events-auto">
-            <Card className="border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 shadow-lg">
-              <CardHeader className="pb-2">
-                <div className="flex items-center gap-2">
-                  <div className="rounded-full bg-green-100 dark:bg-green-900 p-2">
-                    <Check className="h-5 w-5 text-green-600 dark:text-green-400" />
-                  </div>
-                  <CardTitle className="text-green-800 dark:text-green-300">
-                    Installation Successful!
-                  </CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <p className="text-green-700 dark:text-green-400">
-                  Your Squid Proxy has been successfully installed. Check your
-                  Telegram for the credentials.
-                </p>
-              </CardContent>
-            </Card>
+        <div style={successCardStyles}>
+          <div className="flex items-center space-x-2">
+            <Check className="h-5 w-5" />
+            <h3 className="font-semibold">Installation Successful!</h3>
+          </div>
+          <div className="mt-2 text-sm">
+            <p>Proxy: {installationDetails?.proxy}</p>
+            <p>Username: {installationDetails?.username}</p>
+            <p>Password: {installationDetails?.password}</p>
           </div>
         </div>
       )}

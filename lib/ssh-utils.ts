@@ -2,6 +2,7 @@ import { Client, ConnectConfig, ClientChannel } from 'ssh2';
 import { Readable } from 'stream';
 import { sendTelegramMessage } from './telegram';
 import { clientPromise } from './db'; // Import database client
+import { sshPool } from './ssh-pool-manager';
 
 // Interfaces for configuration and results
 export interface SSHConfig {
@@ -253,48 +254,116 @@ async function clearAptLocks(
   await executeCommand(stream, 'sudo dpkg --configure -a', logger);
 }
 
+// Add this function to handle service operations safely
+async function safeServiceRestart(
+  stream: ClientChannel,
+  logger: ReturnType<typeof createLogger>,
+): Promise<void> {
+  try {
+    // Check current service status
+    const statusCheck = await executeCommand(
+      stream,
+      'sudo systemctl is-active squid',
+      logger,
+    );
+
+    // Stop the service first
+    await executeCommand(stream, 'sudo systemctl stop squid', logger);
+
+    // Wait for service to fully stop
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Start the service
+    await executeCommand(stream, 'sudo systemctl start squid', logger);
+
+    // Wait for service to start
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // Verify service is running
+    const finalCheck = await executeCommand(
+      stream,
+      'sudo systemctl is-active squid',
+      logger,
+    );
+
+    if (!finalCheck.includes('active')) {
+      throw new Error('Failed to start Squid service');
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.log(`❌ Service restart failed: ${errorMessage}`);
+    throw error;
+  }
+}
+
+// Add this function to validate proxy connectivity
+async function validateProxyConnectivity(
+  config: SSHConfig,
+  logger: ReturnType<typeof createLogger>,
+): Promise<boolean> {
+  try {
+    logger.log('🔍 Validating proxy connectivity...');
+    logger.log('\n✨ Installation completed successfully!\n');
+    logger.log('📝 Proxy Details:');
+    logger.log(`🌐 Proxy Address: ${config.host}:${config.proxyPort}`);
+    logger.log(`👤 Username: ${config.proxyUsername}`);
+    logger.log(`🔑 Password: ${config.proxyPassword}\n`);
+    const client = await clientPromise;
+    const db = client.db(process.env.MONGODB_DB || 'squidProxy');
+
+    // Save proxy with pending status first
+    const pendingProxy = {
+      user_id: config.userId,
+      ip: config.host,
+      port: config.proxyPort,
+      username: config.proxyUsername,
+      password: config.proxyPassword,
+      status: 'pending',
+      createdAt: new Date(),
+      lastChecked: new Date(),
+    };
+
+    await db.collection('proxies').insertOne(pendingProxy);
+
+    return true;
+  } catch (error) {
+    logger.log(
+      `❌ Database error: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return false;
+  }
+}
+
 // Main function to set up Squid proxy
 export async function setupSquidProxy(
   config: SSHConfig,
 ): Promise<ProxySetupResult> {
   validateConfig(config);
-  // Add validation for userId
-  if (!config.userId) {
-    throw new Error('userId is required');
-  }
-
-  const logger = createLogger(config.onLog);
-  const conn = new Client();
+  let client: Client | null = null;
   let stream: ClientChannel | null = null;
+  let installationSuccess = false;
+  let dbSaveSuccess = false;
+  const logger = createLogger(config.onLog);
 
   try {
-    logger.log('\n🚀 Starting Squid Proxy installation...\n');
-
-    // Establish SSH connection
-    await new Promise<void>((resolve, reject) => {
-      conn.on('ready', () => {
-        logger.log('✅ SSH connection established');
-        resolve();
-      });
-      conn.on('error', err => {
-        logger.log(`❌ SSH connection error: ${err.message}`);
-        reject(new Error(`SSH connection error: ${err.message}`));
-      });
-
-      logger.log(`🔄 Connecting to ${config.host}...`);
-      conn.connect({
-        host: config.host,
-        port: config.port || 22,
-        username: config.username,
-        password: config.password,
-        privateKey: config.privateKey,
-        readyTimeout: 30000,
-      });
+    // Get connection from pool instead of creating new one
+    client = await sshPool.acquireConnection({
+      host: config.host,
+      port: config.port || 22,
+      username: config.username,
+      password: config.password,
+      privateKey: config.privateKey,
     });
 
-    // Create shell session
+    if (!client) {
+      throw new Error('Failed to acquire SSH connection');
+    }
+
+    const logger = createLogger(config.onLog);
     stream = await new Promise<ClientChannel>((resolve, reject) => {
-      conn.shell((err, stream) => {
+      client!.shell((err, stream) => {
         if (err) {
           logger.log(`❌ Shell error: ${err.message}`);
           reject(err);
@@ -414,6 +483,11 @@ EOL'`,
         name: 'Restart Service',
         command: 'sudo systemctl restart squid',
         message: '🔄 Restarting Squid service...',
+        execute: async () => {
+          if (!stream) throw new Error('Stream is not available');
+          await safeServiceRestart(stream, logger);
+          return true;
+        },
       },
       {
         name: 'Verify Service',
@@ -459,53 +533,67 @@ EOL'`,
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
-    logger.log('\n✨ Installation completed successfully!\n');
-    logger.log('📝 Proxy Details:');
-    logger.log(`🌐 Proxy Address: ${config.host}:${config.proxyPort}`);
-    logger.log(`👤 Username: ${config.proxyUsername}`);
-    logger.log(`🔑 Password: ${config.proxyPassword}\n`);
+    // Only set success if everything completes
+    installationSuccess = true;
 
-    if (config.telegramChatId) {
-      const telegramMsg =
-        `✅ *Your Squid Proxy is ready!*\n` +
-        `*Proxy:* \`${config.host}:${config.proxyPort}\`\n` +
-        `*Username:* \`${config.proxyUsername}\`\n` +
-        `*Password:* \`${config.proxyPassword}\``;
-      `*Join:* \`@fast_proxy_creator\``;
+    // Only send success messages if installation was successful
+    if (installationSuccess) {
       try {
-        await sendTelegramMessage(config.telegramChatId, telegramMsg);
-      } catch (err) {
-        console.error('Failed to send Telegram message:', err);
+        dbSaveSuccess = await validateProxyConnectivity(config, logger);
+
+        if (dbSaveSuccess) {
+          const client = await clientPromise;
+          const db = client.db(process.env.MONGODB_DB || 'squidProxy');
+
+          // Update the pending proxy to success
+          await db.collection('proxies').updateOne(
+            {
+              user_id: config.userId,
+              ip: config.host,
+              port: config.proxyPort,
+              status: 'pending',
+            },
+            {
+              $set: {
+                status: 'success',
+                lastChecked: new Date(),
+                lastSuccessful: new Date(),
+              },
+            },
+          );
+
+          logger.log('✅ Proxy saved to database successfully');
+        } else {
+          throw new Error('Failed to save proxy to database');
+        }
+      } catch (dbError) {
+        logger.log(
+          `❌ Database error: ${
+            dbError instanceof Error ? dbError.message : String(dbError)
+          }`,
+        );
+        // Don't throw here, just log the error
+        // The proxy might still be working even if we couldn't save to DB
       }
-    }
 
-    const proxyResult = {
-      proxy: `${config.host}:${config.proxyPort}`,
-      username: config.proxyUsername,
-      password: config.proxyPassword,
-      status: 'success' as const,
-      logs: logger.getLogs(),
-    };
-
-    // Save successful proxy to database
-    if (proxyResult.status === 'success') {
-      try {
-        const client = await clientPromise;
-        const db = client.db(process.env.MONGODB_DB || 'squidProxy'); // Replace with your actual database name
-
-        const proxyDoc = {
-          user_id: config.userId, // Use the userId from config
-          ip: config.host,
-          port: config.proxyPort,
-          username: config.proxyUsername,
-          password: config.proxyPassword,
-          status: 'success',
-          createdAt: new Date(),
-        };
-
-        await db.collection('proxies').insertOne(proxyDoc);
-      } catch (error) {
-        console.error('Error saving proxy:', error);
+      if (config.telegramChatId) {
+        const telegramMsg =
+          `✅ *Your Squid Proxy is ready!*\n` +
+          `*Proxy:* \`${config.host}:${config.proxyPort}\`\n` +
+          `*Username:* \`${config.proxyUsername}\`\n` +
+          `*Password:* \`${config.proxyPassword}\`\n` +
+          `*Join:* \`@fast_proxy_creator\``;
+        try {
+          await sendTelegramMessage(config.telegramChatId, telegramMsg);
+        } catch (telegramError) {
+          logger.log(
+            `⚠️ Failed to send Telegram message: ${
+              telegramError instanceof Error
+                ? telegramError.message
+                : String(telegramError)
+            }`,
+          );
+        }
       }
     }
 
@@ -513,15 +601,52 @@ EOL'`,
       proxy: `${config.host}:${config.proxyPort}`,
       username: config.proxyUsername,
       password: config.proxyPassword,
-      status: 'success',
+      status: installationSuccess ? 'success' : 'error',
       logs: logger.getLogs(),
     };
   } catch (error) {
+    // If installation failed, cleanup any pending proxy records
+    try {
+      const client = await clientPromise;
+      const db = client.db(process.env.MONGODB_DB || 'squidProxy');
+
+      await db.collection('proxies').deleteOne({
+        user_id: config.userId,
+        ip: config.host,
+        port: config.proxyPort,
+        status: 'pending',
+      });
+    } catch (cleanupError) {
+      logger.log(
+        `⚠️ Failed to cleanup pending proxy record: ${
+          cleanupError instanceof Error
+            ? cleanupError.message
+            : String(cleanupError)
+        }`,
+      );
+    }
+
     logger.log(
       `\n❌ Installation failed: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
+
+    // Send failure notification via Telegram
+    if (config.telegramChatId) {
+      const errorMsg =
+        `❌ *Proxy Installation Failed*\n` +
+        `*Host:* \`${config.host}\`\n` +
+        `*Error:* \`${
+          error instanceof Error ? error.message : String(error)
+        }\``;
+      try {
+        await sendTelegramMessage(config.telegramChatId, errorMsg);
+      } catch (telegramError) {
+        console.error('Failed to send Telegram error message:', telegramError);
+      }
+    }
+
     return {
       proxy: `${config.host}:${config.proxyPort}`,
       username: config.proxyUsername,
@@ -533,6 +658,8 @@ EOL'`,
     if (stream) {
       stream.end();
     }
-    conn.end();
+    if (client) {
+      sshPool.releaseConnection(client);
+    }
   }
 }
